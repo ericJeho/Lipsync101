@@ -1,0 +1,47 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# test / coverage
+coverage/
+.pytest_cache/
+.vitest/
+playwright-report/
+test-results/
+
+# runtime data
+storage/
+uploads/
+tmp/
+*.log
+npm-debug.log*
+logs/
+
+# ai model weights (downloaded at build/run time)
+services/ai/weights/*
+!services/ai/weights/.gitkeep
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
