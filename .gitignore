@@ -45,3 +45,7 @@ services/ai/weights/*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# python virtualenv inside the ai service
+services/ai/.venv/
+services/ai/tmp/

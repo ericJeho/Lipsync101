@@ -1,0 +1,23 @@
+# --- service ---------------------------------------------------------------
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+pydantic-settings==2.6.1
+python-multipart==0.0.17
+httpx==0.28.0
+
+# --- media -----------------------------------------------------------------
+# ffmpeg itself is a system package (see Dockerfile); these drive it and read
+# the results back as arrays.
+numpy==1.26.4
+soundfile==0.12.1
+
+# --- tests -----------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.24.0
+
+# ---------------------------------------------------------------------------
+# Inference extras. These are large (several GB with CUDA wheels) and are
+# installed separately by the GPU image — see requirements-gpu.txt. The service
+# runs without them in simulation mode, which is what CI and local UI work use.
+# ---------------------------------------------------------------------------

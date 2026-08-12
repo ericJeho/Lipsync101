@@ -1,0 +1,21 @@
+[project]
+name = "lipsync-ai"
+version = "1.0.0"
+description = "LipSync Studio inference service"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# Optional heavy dependencies are imported inside functions on purpose, so the
+# service starts without torch, whisper or opencv installed.
+ignore = ["E501", "PLC0415"]

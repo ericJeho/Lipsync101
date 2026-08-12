@@ -1,0 +1,29 @@
+# GPU inference stack, layered on top of requirements.txt.
+#
+# Kept separate because these pull ~6GB of CUDA wheels: CI, the API's own tests
+# and local frontend work all run the service in simulation mode without them.
+-r requirements.txt
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+
+# Speech recognition, translation and forced alignment.
+openai-whisper==20240930
+faster-whisper==1.0.3
+
+# Audio feature extraction — tempo, beat tracking, mel spectrograms.
+librosa==0.10.2.post1
+
+# Face detection, tracking and restoration.
+opencv-python-headless==4.10.0.84
+insightface==0.7.3
+onnxruntime-gpu==1.19.2
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+realesrgan==0.3.0
+
+# NSFW / safety classifiers used by the moderation pipeline.
+transformers==4.46.3
