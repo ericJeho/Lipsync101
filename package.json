@@ -2,7 +2,7 @@
   "name": "lipsync-studio",
   "version": "1.0.0",
   "private": true,
-  "description": "LipSync Studio — AI video lip-sync platform",
+  "description": "LipSync Studio \u2014 AI video lip-sync platform",
   "license": "MIT",
   "workspaces": [
     "packages/*",

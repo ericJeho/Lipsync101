@@ -1,0 +1,321 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Design tokens
+
+   One palette expressed as HSL channels so opacity modifiers work everywhere
+   (`bg-surface/60`). Dark is the default — this is a video tool and a bright
+   chrome around a dark timeline is fatiguing — with a light theme that is a
+   real design rather than an inversion.
+   ========================================================================== */
+
+@theme {
+  --color-ink: hsl(var(--ink));
+  --color-ink-muted: hsl(var(--ink-muted));
+  --color-ink-subtle: hsl(var(--ink-subtle));
+
+  --color-canvas: hsl(var(--canvas));
+  --color-surface: hsl(var(--surface));
+  --color-surface-raised: hsl(var(--surface-raised));
+  --color-line: hsl(var(--line));
+  --color-line-strong: hsl(var(--line-strong));
+
+  --color-brand: hsl(var(--brand));
+  --color-brand-soft: hsl(var(--brand-soft));
+  --color-accent: hsl(var(--accent));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-danger: hsl(var(--danger));
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --radius-card: 1rem;
+  --radius-panel: 1.25rem;
+
+  --shadow-glow: 0 0 40px -12px hsl(var(--brand) / 0.55);
+  --shadow-panel: 0 24px 60px -32px hsl(240 60% 4% / 0.9);
+
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-aurora: aurora 22s ease-in-out infinite alternate;
+  --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+:root {
+  --ink: 220 20% 97%;
+  --ink-muted: 220 12% 68%;
+  --ink-subtle: 220 10% 48%;
+
+  --canvas: 240 24% 5%;
+  --surface: 240 20% 8%;
+  --surface-raised: 240 18% 12%;
+  --line: 240 14% 18%;
+  --line-strong: 240 14% 26%;
+
+  --brand: 252 90% 66%;
+  --brand-soft: 252 70% 22%;
+  --accent: 286 88% 68%;
+  --success: 158 72% 46%;
+  --warning: 38 94% 58%;
+  --danger: 356 82% 62%;
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --ink: 240 24% 12%;
+  --ink-muted: 240 8% 40%;
+  --ink-subtle: 240 6% 55%;
+
+  --canvas: 240 30% 99%;
+  --surface: 0 0% 100%;
+  --surface-raised: 240 30% 97%;
+  --line: 240 16% 90%;
+  --line-strong: 240 14% 80%;
+
+  --brand: 252 82% 58%;
+  --brand-soft: 252 90% 95%;
+  --accent: 286 74% 54%;
+  --success: 158 68% 36%;
+  --warning: 32 88% 46%;
+  --danger: 356 72% 50%;
+
+  color-scheme: light;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+  border-color: hsl(var(--line));
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: hsl(var(--canvas));
+  color: hsl(var(--ink));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Visible, consistent focus. Removing outlines without replacing them makes an
+   app unusable by keyboard, so every interactive element gets this ring. */
+:focus-visible {
+  outline: 2px solid hsl(var(--brand));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: hsl(var(--brand) / 0.35);
+  color: hsl(var(--ink));
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--line-strong));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--ink-subtle));
+  background-clip: content-box;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+@utility glass {
+  background: hsl(var(--surface) / 0.72);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid hsl(var(--line) / 0.9);
+}
+
+@utility glass-strong {
+  background: hsl(var(--surface-raised) / 0.86);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid hsl(var(--line-strong) / 0.7);
+}
+
+@utility gradient-text {
+  background-image: linear-gradient(
+    120deg,
+    hsl(var(--ink)) 0%,
+    hsl(var(--brand)) 45%,
+    hsl(var(--accent)) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility gradient-brand {
+  background-image: linear-gradient(135deg, hsl(var(--brand)), hsl(var(--accent)));
+}
+
+/* Gradient border via a masked pseudo-element — a real 1px border cannot
+   itself carry a gradient. */
+@utility gradient-ring {
+  position: relative;
+}
+
+@utility hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.gradient-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, hsl(var(--brand) / 0.7), hsl(var(--accent) / 0.35), transparent 60%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   Keyframes
+   ========================================================================== */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-18px) translateX(8px);
+  }
+}
+
+@keyframes aurora {
+  0% {
+    transform: translate3d(-8%, -4%, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 6%, 0) rotate(12deg) scale(1.18);
+  }
+  100% {
+    transform: translate3d(-4%, 8%, 0) rotate(-8deg) scale(1.05);
+  }
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.6);
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--surface-raised)) 25%,
+    hsl(var(--line)) 50%,
+    hsl(var(--surface-raised)) 75%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Respect the user's motion preference. Decorative ambient motion is the first
+   thing to go; transitions collapse to near-instant rather than disappearing so
+   state changes stay legible. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A range input cannot be styled with utilities alone; the studio sliders all
+   share this treatment. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: hsl(var(--line-strong));
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  width: 18px;
+  margin-top: -6px;
+  border-radius: 999px;
+  background: hsl(var(--ink));
+  border: 3px solid hsl(var(--brand));
+  box-shadow: 0 2px 10px hsl(var(--brand) / 0.5);
+  transition: transform 0.15s ease;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: hsl(var(--line-strong));
+}
+
+input[type='range']::-moz-range-thumb {
+  height: 18px;
+  width: 18px;
+  border-radius: 999px;
+  background: hsl(var(--ink));
+  border: 3px solid hsl(var(--brand));
+}
