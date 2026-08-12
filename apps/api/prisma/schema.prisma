@@ -1,0 +1,478 @@
+// LipSync Studio — PostgreSQL schema
+//
+// Conventions:
+//   * UUID primary keys so ids can be minted client-side for optimistic UI.
+//   * Money is stored in minor units (cents/tambala) as integers, never floats.
+//   * Anything user-uploaded hangs off Asset so the retention sweeper has one
+//     table to walk when deleting expired media.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  user
+  moderator
+  admin
+}
+
+enum PlanId {
+  free
+  pro
+  studio
+}
+
+enum SubscriptionStatus {
+  active
+  trialing
+  past_due
+  canceled
+  incomplete
+}
+
+enum AssetKind {
+  video
+  audio
+  image
+  subtitle
+  render
+}
+
+enum AssetStatus {
+  uploading
+  scanning
+  ready
+  quarantined
+  deleted
+}
+
+enum JobStatus {
+  queued
+  analyzing
+  rendering
+  enhancing
+  encoding
+  completed
+  failed
+  cancelled
+  paused
+}
+
+enum ModerationAction {
+  allow
+  flag
+  block
+}
+
+enum PaymentProvider {
+  stripe
+  paypal
+  airtel_money
+  mtn_momo
+}
+
+enum PaymentStatus {
+  pending
+  awaiting_approval
+  succeeded
+  failed
+  refunded
+}
+
+model User {
+  id               String   @id @default(uuid()) @db.Uuid
+  email            String   @unique
+  emailVerified    Boolean  @default(false)
+  passwordHash     String?
+  name             String?
+  avatarUrl        String?
+  role             UserRole @default(user)
+  plan             PlanId   @default(free)
+  credits          Int      @default(300)
+  storageUsedBytes BigInt   @default(0)
+  countryCode      String?  @db.VarChar(2)
+  locale           String   @default("en")
+
+  twoFactorEnabled Boolean  @default(false)
+  twoFactorSecret  String?
+  recoveryCodes    String[] @default([])
+
+  // Rendered seconds consumed in the current billing period; reset on renewal.
+  periodSecondsUsed Int      @default(0)
+  periodResetAt     DateTime @default(now())
+
+  // Soft-lock for abuse handling — set by moderators, checked on every login.
+  suspendedAt     DateTime?
+  suspendedReason String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastSeenAt DateTime?
+
+  accounts      OAuthAccount[]
+  sessions      Session[]
+  projects      Project[]
+  assets        Asset[]
+  jobs          Job[]
+  apiKeys       ApiKey[]
+  payments      Payment[]
+  subscription  Subscription?
+  webhooks      WebhookEndpoint[]
+  voiceClones   VoiceClone[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  reviewedFlags ModerationFlag[]  @relation("ModerationReviewer")
+  memberships   TeamMember[]
+
+  @@index([plan])
+  @@index([createdAt])
+}
+
+model OAuthAccount {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  provider       String
+  providerUserId String
+  accessToken    String?
+  refreshToken   String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+}
+
+/// One row per issued refresh token. Storing a hash (not the token) means a
+/// database leak cannot be replayed against the auth endpoints.
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model VerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  /// sha256 of the emailed token.
+  tokenHash String    @unique
+  email     String
+  /// "verify_email" | "reset_password"
+  purpose   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, purpose])
+}
+
+model Team {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  members  TeamMember[]
+  projects Project[]
+}
+
+model TeamMember {
+  id       String   @id @default(uuid()) @db.Uuid
+  teamId   String   @db.Uuid
+  userId   String   @db.Uuid
+  /// "owner" | "editor" | "viewer"
+  role     String   @default("editor")
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Project {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  teamId       String?   @db.Uuid
+  name         String
+  description  String?
+  favorite     Boolean   @default(false)
+  /// Serialised TimelineState from @lipsync/shared.
+  timeline     Json?
+  thumbnailUrl String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  assets Asset[]
+  jobs   Job[]
+
+  @@index([userId, updatedAt])
+  @@index([teamId])
+}
+
+model Asset {
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     String      @db.Uuid
+  projectId  String?     @db.Uuid
+  kind       AssetKind
+  status     AssetStatus @default(uploading)
+  filename   String
+  mimeType   String
+  sizeBytes  BigInt      @default(0)
+  storageKey String      @unique
+  checksum   String?
+  /// MediaProbe from @lipsync/shared — duration, dimensions, codecs, face stats.
+  probe      Json?
+  /// VoiceAnalysis, populated for audio assets once analysed.
+  analysis   Json?
+  /// Set on upload from the owner's plan retention window; the sweeper deletes past it.
+  expiresAt  DateTime?
+  createdAt  DateTime    @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  videoJobs Job[]            @relation("JobVideoAsset")
+  audioJobs Job[]            @relation("JobAudioAsset")
+  flags     ModerationFlag[]
+
+  @@index([userId, createdAt])
+  @@index([projectId])
+  @@index([expiresAt])
+  @@index([status])
+}
+
+model Job {
+  id           String  @id @default(uuid()) @db.Uuid
+  userId       String  @db.Uuid
+  projectId    String  @db.Uuid
+  batchId      String? @db.Uuid
+  videoAssetId String  @db.Uuid
+  audioAssetId String  @db.Uuid
+
+  status   JobStatus @default(queued)
+  progress Int       @default(0)
+  stage    String    @default("Queued")
+
+  engine            String
+  preset            String
+  outputFormat      String   @default("mp4")
+  outputHeight      Int      @default(1080)
+  enhancements      String[] @default([])
+  /// ExpressionControls from @lipsync/shared.
+  expression        Json
+  musicMode         Boolean  @default(false)
+  karaokeTiming     Boolean  @default(false)
+  translateTo       String?
+  voiceCloneId      String?  @db.Uuid
+  burnInSubtitles   Boolean  @default(false)
+  subtitleLanguages String[] @default([])
+  notifyByEmail     Boolean  @default(true)
+
+  creditsCharged Int     @default(0)
+  etaSeconds     Int?
+  queuePosition  Int?
+  priority       Int     @default(0)
+  attempts       Int     @default(0)
+  error          String?
+
+  outputKey    String?
+  outputUrl    String?
+  thumbnailUrl String?
+  /// VoiceAnalysis produced during the analysis stage.
+  analysis     Json?
+  /// SubtitleTrack[] produced when subtitles were requested.
+  subtitles    Json?
+  /// Worker that picked the job up — surfaced in the admin GPU view.
+  workerId     String?
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  videoAsset Asset            @relation("JobVideoAsset", fields: [videoAssetId], references: [id])
+  audioAsset Asset            @relation("JobAudioAsset", fields: [audioAssetId], references: [id])
+  batch      Batch?           @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  flags      ModerationFlag[]
+
+  @@index([userId, createdAt])
+  @@index([status, priority])
+  @@index([batchId])
+  @@index([projectId])
+}
+
+model Batch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  paused    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  jobs Job[]
+
+  @@index([userId])
+}
+
+model VoiceClone {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  name              String
+  /// Storage keys of the enrolment samples.
+  sampleKeys        String[]  @default([])
+  /// "training" | "ready" | "failed"
+  status            String    @default("training")
+  modelKey          String?
+  /// Explicit consent is a precondition for training; we keep the evidence.
+  consentAcceptedAt DateTime?
+  consentIp         String?
+  createdAt         DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ModerationFlag {
+  id           String           @id @default(uuid()) @db.Uuid
+  assetId      String?          @db.Uuid
+  jobId        String?          @db.Uuid
+  action       ModerationAction
+  /// ModerationSignal[] from @lipsync/shared.
+  signals      Json
+  reviewedById String?          @db.Uuid
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime         @default(now())
+
+  asset      Asset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  job        Job?   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("ModerationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([reviewedAt])
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @unique @db.Uuid
+  plan               PlanId
+  status             SubscriptionStatus @default(active)
+  provider           PaymentProvider    @default(stripe)
+  providerSubId      String?
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model Payment {
+  id             String          @id @default(uuid()) @db.Uuid
+  userId         String          @db.Uuid
+  provider       PaymentProvider
+  status         PaymentStatus   @default(pending)
+  /// Minor units — cents for USD, tambala for MWK.
+  amountMinor    Int
+  currency       String          @default("USD")
+  description    String?
+  providerRef    String?
+  /// Set for mobile money, where the payer approves on their handset.
+  phoneNumber    String?
+  failureReason  String?
+  /// Guards against double-charging when a provider retries a webhook.
+  idempotencyKey String?         @unique
+  createdAt      DateTime        @default(now())
+  settledAt      DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([provider, status])
+}
+
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  name       String
+  /// First 8 characters, shown in the UI so keys are identifiable after issue.
+  prefix     String
+  keyHash    String    @unique
+  scopes     String[]  @default(["jobs:read", "jobs:write"])
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model WebhookEndpoint {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  url          String
+  /// Used to sign the payload; the receiver verifies the HMAC header.
+  secret       String
+  events       String[] @default(["job.completed", "job.failed"])
+  active       Boolean  @default(true)
+  failureCount Int      @default(0)
+  lastStatus   Int?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  type      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  action    String
+  target    String?
+  metadata  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+}
