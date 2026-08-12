@@ -1,0 +1,157 @@
+# LipSync Studio — full local stack.
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#
+# Brings up Postgres, Redis, the API, the render worker, the Python inference
+# service and the web app. The AI service runs in simulation mode unless model
+# weights are mounted — see docs/DEPLOYMENT.md.
+
+name: lipsync-studio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lipsync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lipsync}
+      POSTGRES_DB: lipsync
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      # Dependent services wait on this, so it has to test a real query path,
+      # not just that the port is open.
+      test: ['CMD-SHELL', 'pg_isready -U lipsync -d lipsync']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Queue state is reconstructible from Postgres, so persistence is off and
+    # a bounded LRU keeps memory predictable.
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save ''
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      API_URL: ${API_URL:-http://localhost:4000}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      DATABASE_URL: postgresql://lipsync:${POSTGRES_PASSWORD:-lipsync}@postgres:5432/lipsync?schema=public
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai:8000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-ai-token}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in infra/.env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in infra/.env}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /data/storage
+      STORAGE_PUBLIC_URL: ${API_URL:-http://localhost:4000}/media
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - media-data:/data/storage
+    ports:
+      - '4000:4000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:4000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    restart: unless-stopped
+    # One render at a time per worker; scale horizontally instead of raising
+    # concurrency, so two renders never share one GPU.
+    command: ['node', 'dist/worker/index.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://lipsync:${POSTGRES_PASSWORD:-lipsync}@postgres:5432/lipsync?schema=public
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai:8000
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-ai-token}
+      API_URL: ${API_URL:-http://localhost:4000}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in infra/.env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in infra/.env}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /data/storage
+    volumes:
+      - media-data:/data/storage
+
+  ai:
+    build:
+      context: ../services/ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-dev-ai-token}
+      AI_STORAGE_DIR: /data/storage
+      AI_WEIGHTS_DIR: /data/weights
+      AI_WHISPER_MODEL: ${WHISPER_MODEL:-small}
+    volumes:
+      - media-data:/data/storage
+      # Mount real model weights here to leave simulation mode.
+      - ../services/ai/weights:/data/weights:ro
+    ports:
+      - '8000:8000'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Uncomment on a GPU host, with the NVIDIA container toolkit installed.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_SITE_URL: ${WEB_URL:-http://localhost:3000}
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres-data:
+  media-data:

@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  # A new push supersedes the run in flight for the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  node:
+    name: Node — typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        # The API's types come from the generated client, so this has to run
+        # before anything typechecks.
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Build shared package
+        # Both apps import the compiled output rather than the source.
+        run: npm run build --workspace @lipsync/shared
+
+      - name: Typecheck
+        run: |
+          npm run typecheck --workspace @lipsync/shared
+          npm run typecheck --workspace @lipsync/api
+          npm run typecheck --workspace @lipsync/web
+
+      - name: Test
+        run: |
+          npm run test --workspace @lipsync/shared
+          npm run test --workspace @lipsync/api
+          npm run test --workspace @lipsync/web
+
+      - name: Build API
+        run: npm run build --workspace @lipsync/api
+
+      - name: Build web
+        run: npm run build --workspace @lipsync/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+
+  python:
+    name: Python — inference service
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/ai/requirements.txt
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install
+        working-directory: services/ai
+        # The CPU requirements only — the CUDA wheels are several gigabytes and
+        # the suite runs the pipeline in simulation mode.
+        run: pip install -r requirements.txt
+
+      - name: Test
+        working-directory: services/ai
+        run: python -m pytest -q
+        env:
+          AI_FORCE_SIMULATION: 'true'
+
+      - name: Check the app imports and routes are registered
+        working-directory: services/ai
+        run: |
+          python -c "
+          from app.main import app
+          routes = {r.path for r in app.routes}
+          required = {'/health', '/v1/render', '/v1/analyze', '/v1/transcribe', '/v1/moderate'}
+          missing = required - routes
+          assert not missing, f'missing routes: {missing}'
+          print(f'{len(routes)} routes registered')
+          "
+
+  migrations:
+    name: Database migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lipsync
+          POSTGRES_PASSWORD: lipsync
+          POSTGRES_DB: lipsync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lipsync"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply the schema to a real database
+        # `db push` proves the schema is valid DDL that Postgres accepts, which
+        # a lint of the schema file cannot.
+        working-directory: apps/api
+        run: npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
+
+      - name: Seed
+        working-directory: apps/api
+        run: npm run db:seed
+        env:
+          DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Image builds are slow and only matter once the code is known good.
+    needs: [node, python]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.api
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.web
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Build inference image (CPU)
+        uses: docker/build-push-action@v6
+        with:
+          context: services/ai
+          target: base
+          push: false
+          cache-from: type=gha,scope=ai
+          cache-to: type=gha,scope=ai,mode=max

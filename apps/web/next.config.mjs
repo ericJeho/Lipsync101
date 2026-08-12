@@ -1,9 +1,16 @@
+import { join } from 'node:path';
+
 /** @type {import('next').NextConfig} */
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Traced standalone output — the Docker runtime stage copies only this,
+  // rather than the full workspace node_modules.
+  output: 'standalone',
+  outputFileTracingRoot: join(import.meta.dirname, '../../'),
 
   // The shared package ships TypeScript source, so Next has to compile it
   // rather than treating it as a prebuilt dependency.
