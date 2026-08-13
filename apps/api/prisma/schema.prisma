@@ -13,6 +13,16 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+
+  // Connection poolers (Supabase's pgbouncer, PgBouncer, RDS Proxy) multiplex
+  // many clients onto few server connections, which is what makes them useful
+  // for a serverless or many-replica app — and which also breaks the prepared
+  // statements and advisory locks that migrations need. So the app talks to
+  // the pooled URL and migrations talk straight to Postgres.
+  //
+  // Optional: unset, Prisma uses `url` for both, which is correct for a plain
+  // Postgres with no pooler in front of it.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum UserRole {

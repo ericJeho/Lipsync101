@@ -23,6 +23,14 @@ const schema = z.object({
   DATABASE_URL: z
     .string()
     .default('postgresql://lipsync:lipsync@localhost:5432/lipsync?schema=public'),
+  /**
+   * Migrations only, and only meaningful behind a connection pooler: pgbouncer
+   * breaks the prepared statements and advisory locks Prisma migrate needs.
+   * With plain Postgres this is the same value as DATABASE_URL.
+   */
+  DIRECT_DATABASE_URL: z
+    .string()
+    .default('postgresql://lipsync:lipsync@localhost:5432/lipsync?schema=public'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-access-secret-change-me-please'),

@@ -18,6 +18,12 @@ primary_region = 'iad'
 [deploy]
   # Runs once per release, before the new machines take traffic. The prisma
   # CLI is a runtime dependency precisely so this works in the pruned image.
+  #
+  # Needs DIRECT_DATABASE_URL as well as DATABASE_URL. Behind a pooler
+  # (Supabase, or Fly Postgres fronted by pgbouncer) they differ; with a plain
+  # attached Postgres, set both to the same value:
+  #
+  #   fly secrets set --app lipsync-api DIRECT_DATABASE_URL="$DATABASE_URL"
   release_command = 'npx prisma migrate deploy'
   # Renders in flight must finish; rolling replaces machines one at a time.
   strategy = 'rolling'

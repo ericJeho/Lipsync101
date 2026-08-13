@@ -140,12 +140,14 @@ jobs:
         run: npx prisma db push --skip-generate
         env:
           DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
+          DIRECT_DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
 
       - name: Seed
         working-directory: apps/api
         run: npm run db:seed
         env:
           DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
+          DIRECT_DATABASE_URL: postgresql://lipsync:lipsync@localhost:5432/lipsync_test?schema=public
 
   docker:
     name: Docker images

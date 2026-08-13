@@ -260,6 +260,102 @@ Then set `API_URL=https://api.yourdomain.com` and point a CNAME at
 
 ---
 
+## Supabase (managed Postgres)
+
+An alternative to Fly Postgres. Same Prisma schema, no code changes — but two
+things about Supabase specifically will break you if you skip them.
+
+### Two connection strings, not one
+
+Supabase fronts Postgres with a pooler. Pooled connections multiplex many
+clients onto few server connections, which is what makes them scale — and which
+also breaks the prepared statements and advisory locks that `prisma migrate`
+relies on. So the app and the migrations use different URLs:
+
+```bash
+# The app — pooled, port 6543
+DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+
+# Migrations — direct, port 5432
+DIRECT_DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+```
+
+`schema.prisma` declares `directUrl` for exactly this. Both variables are
+required — Prisma fails schema validation if `DIRECT_DATABASE_URL` is unset, so
+set it to the same value as `DATABASE_URL` when there is no pooler in front
+(plain Postgres, Docker Compose, CI).
+
+`connection_limit=1` is not a typo. Each worker holds its own pool, and the
+pooler's session limit is shared across every client; without a cap, a handful
+of workers exhausts it and the API starts failing to connect.
+
+### Row Level Security is not optional here
+
+Supabase exposes the `public` schema through PostgREST. These tables hold
+password hashes, TOTP secrets, refresh-token hashes, API key hashes and webhook
+signing secrets — none of which should ever be reachable from a browser.
+
+Prisma creates tables as the `postgres` role and issues no grants, so `anon`
+cannot read them by default. That is the current state, and it is fine. It is
+also one stray `GRANT ... TO anon` away from being catastrophic, and plenty of
+Supabase snippets hand out exactly that grant.
+
+So the schema ships with RLS enabled and **no policies** — deny by default:
+
+```sql
+ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
+-- ...one per table, no policies created
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+```
+
+This costs the application nothing: Prisma connects as `postgres`, which has
+`BYPASSRLS`. The absence of a policy *is* the security boundary. If some table
+later genuinely needs to be readable from a browser, add an explicit policy for
+that table — do not disable RLS.
+
+Verify after any schema change:
+
+```sql
+SELECT c.relname, c.relrowsecurity,
+       has_table_privilege('anon', c.oid, 'SELECT') AS anon_can_select
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r';
+```
+
+Every row should read `true, false`.
+
+### Setting it up
+
+```bash
+# Create the project, then from the dashboard: Settings → Database → Connection
+# string. Take both the pooled (6543) and direct (5432) forms.
+
+fly secrets set --app lipsync-api \
+  DATABASE_URL="postgresql://...6543/postgres?pgbouncer=true&connection_limit=1" \
+  DIRECT_DATABASE_URL="postgresql://...5432/postgres"
+
+# Apply the schema. Migrations run over the direct URL automatically.
+cd apps/api && npx prisma migrate deploy
+```
+
+The repository carries a real migration in
+`apps/api/prisma/migrations/20260812000000_init/`, so `migrate deploy` has
+something to apply. Generating the schema without it — with `db push` — leaves
+no migration history, and the next deploy has no idea what has already been
+applied.
+
+### What Supabase gives you that Fly Postgres does not
+
+Automatic backups with point-in-time recovery, a SQL editor and table browser,
+and connection pooling without running pgbouncer yourself. What it does not
+change: this app uses Supabase purely as Postgres. It does not use Supabase
+Auth, Storage or Realtime — the app has its own JWT auth, its own S3-compatible
+storage layer and its own Socket.IO channel, and mixing the two would mean two
+sources of truth for who a user is.
+
+---
+
 ## Model weights
 
 Drop weights under `services/ai/weights/`. The service checks for these exact
