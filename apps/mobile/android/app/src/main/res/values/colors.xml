@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lifted from apps/web/src/app/globals.css so the native chrome, the splash
+     and the WebView agree rather than nearly agreeing. Names map to the CSS
+     custom properties of the same name in the dark theme. -->
+<resources>
+    <color name="lipsync_canvas">#0A0A12</color>
+    <color name="lipsync_surface">#14141C</color>
+    <color name="lipsync_brand">#6B5BF5</color>
+    <color name="lipsync_accent">#C05BF0</color>
+
+    <color name="colorPrimary">@color/lipsync_brand</color>
+    <color name="colorPrimaryDark">@color/lipsync_canvas</color>
+    <color name="colorAccent">@color/lipsync_accent</color>
+</resources>

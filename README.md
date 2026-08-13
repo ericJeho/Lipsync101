@@ -79,6 +79,9 @@ fly deploy --config infra/fly/fly.ai.toml services/ai    # inference service
 fly deploy --config infra/fly/fly.api.toml .             # API + render worker
 ```
 
+For Android, `.github/workflows/android.yml` builds the APK on every push and
+uploads it as a run artifact — see [docs/ANDROID.md](docs/ANDROID.md).
+
 `vercel.json` carries the monorepo build, so importing the repo and setting
 `NEXT_PUBLIC_API_URL` is the whole frontend setup. The split is not arbitrary:
 the API holds long-lived WebSockets and the worker runs minutes-long ffmpeg
@@ -141,6 +144,7 @@ licence permits — two of the six are **non-commercial**.
 ```
 ├── apps/
 │   ├── api/               Express API, Prisma schema, BullMQ render worker
+│   ├── mobile/            Capacitor Android shell around the web studio
 │   └── web/               Next.js App Router frontend
 ├── packages/
 │   └── shared/            Types, Zod schemas, pricing and policy — the contract
@@ -235,7 +239,8 @@ Do not use this on faces or voices you do not have permission to use.
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | How a render flows through the system |
 | [API reference](docs/API.md) | REST, GraphQL, webhooks, SDK examples |
-| [Deployment](docs/DEPLOYMENT.md) | Docker, Kubernetes, storage, GPU, scaling |
+| [Deployment](docs/DEPLOYMENT.md) | Docker, Vercel, Fly.io, Supabase, GPU, scaling |
+| [Android](docs/ANDROID.md) | Building and signing the APK |
 | [Licensing](docs/LICENSING.md) | What each engine's licence permits |
 
 ## Licence

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from '@lipsync/shared';
 import { ThemeProvider } from '@/components/layout/ThemeProvider';
 import { AuthProvider } from '@/components/layout/AuthProvider';
+import { NativeShell } from '@/components/layout/NativeShell';
 import './globals.css';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
@@ -109,6 +110,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <ThemeProvider>
+          <NativeShell />
           <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
       </body>

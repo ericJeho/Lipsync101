@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LipSync Studio</string>
+    <string name="title_activity_main">LipSync Studio</string>
+    <string name="package_name">app.lipsyncstudio.mobile</string>
+    <string name="custom_url_scheme">app.lipsyncstudio.mobile</string>
+</resources>

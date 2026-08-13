@@ -49,3 +49,14 @@ services/ai/weights/*
 # python virtualenv inside the ai service
 services/ai/.venv/
 services/ai/tmp/
+
+# android / capacitor
+apps/mobile/www/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/keystore.properties
+apps/mobile/android/app/release/
+*.keystore
+*.jks

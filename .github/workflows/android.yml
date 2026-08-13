@@ -1,0 +1,120 @@
+name: Android APK
+
+# Builds the APK on a GitHub runner, which ships with the Android SDK
+# preinstalled. Download it from the run's Artifacts section.
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API base URL to bake into the app'
+        required: false
+        default: 'https://lipsync-api.fly.dev'
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the shared package
+        run: npm run build --workspace @lipsync/shared
+
+      - name: Export the web UI as static files
+        # MOBILE_EXPORT swaps Next into `output: export`. The API URL is inlined
+        # into the bundle at build time, so it has to be right here — there is
+        # no runtime env inside an APK.
+        run: npm run build --workspace @lipsync/web
+        env:
+          MOBILE_EXPORT: 'true'
+          NEXT_PUBLIC_API_URL: ${{ github.event.inputs.api_url || 'https://lipsync-api.fly.dev' }}
+          NEXT_PUBLIC_SITE_URL: 'https://lipsyncstudio.app'
+
+      - name: Stage the export and sync the native project
+        working-directory: apps/mobile
+        run: |
+          node scripts/stage-web.mjs
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: apps/mobile/android
+        env:
+          # Monotonic and unique per run, so successive builds are ordered and
+          # Play never sees a versionCode twice.
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
+          # Optional. Without these the release APK builds unsigned, which is
+          # enough to prove the build works but is not installable.
+          ANDROID_KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Report what was built
+        run: |
+          echo "### APK build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          for apk in $(find apps/mobile/android/app/build/outputs/apk -name '*.apk'); do
+            size=$(du -h "$apk" | cut -f1)
+            echo "| \`$(basename "$apk")\` | $size |" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lipsync-studio-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lipsync-studio-release-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30

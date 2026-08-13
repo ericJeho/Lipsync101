@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backups are disabled in the manifest, and these rules make that explicit for
+  the two transports that exist on Android 12+.
+
+  The WebView's local storage holds the refresh cookie and cached session
+  state. Letting that ride into a cloud backup, or sideways onto a new device
+  during transfer, would move credentials somewhere the user never authorised.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

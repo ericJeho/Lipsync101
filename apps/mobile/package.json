@@ -1,0 +1,31 @@
+{
+  "name": "@lipsync/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LipSync Studio for Android — Capacitor shell around the web studio",
+  "scripts": {
+    "//": "sync = build the web export, stage it into www/, push into the native project",
+    "build:web": "cross-env MOBILE_EXPORT=true npm run build --workspace @lipsync/web",
+    "stage": "node scripts/stage-web.mjs",
+    "sync": "npm run build:web && npm run stage && cap sync android",
+    "open:android": "cap open android",
+    "apk:debug": "cd android && ./gradlew assembleDebug",
+    "apk:release": "cd android && ./gradlew assembleRelease",
+    "bundle:release": "cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.2",
+    "@capacitor/haptics": "^6.0.2",
+    "@capacitor/keyboard": "^6.0.3",
+    "@capacitor/share": "^6.0.3",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "cross-env": "^7.0.3"
+  }
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  All traffic is HTTPS. The app carries auth tokens, presigned upload URLs and
+  user media, none of which should ever cross the network in the clear, so
+  cleartext is denied outright rather than merely discouraged.
+
+  For local development against an API on your machine, add a debug-only
+  override — do not relax the base config.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!--
+      Debug builds additionally trust user-installed CAs, so tools like mitmproxy
+      or Charles can inspect traffic during development. This block is ignored
+      in release builds.
+    -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
