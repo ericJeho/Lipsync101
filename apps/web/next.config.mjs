@@ -3,13 +3,20 @@ import { join } from 'node:path';
 /** @type {import('next').NextConfig} */
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
+// Vercel produces its own build output and does not want a standalone bundle;
+// setting it there is at best redundant and at worst changes what gets traced.
+// Everywhere else — the Docker image especially — standalone is exactly what
+// we want, so the mode follows the target rather than being hardcoded.
+const onVercel = Boolean(process.env.VERCEL);
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
-  // Traced standalone output — the Docker runtime stage copies only this,
-  // rather than the full workspace node_modules.
-  output: 'standalone',
+  ...(onVercel ? {} : { output: 'standalone' }),
+
+  // The workspace root, so file tracing follows symlinked workspace packages
+  // instead of stopping at apps/web.
   outputFileTracingRoot: join(import.meta.dirname, '../../'),
 
   // The shared package ships TypeScript source, so Next has to compile it

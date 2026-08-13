@@ -50,6 +50,100 @@ stays above zero for sustained periods.
 
 ---
 
+## Vercel
+
+Vercel hosts the **frontend only**. That is not a limitation of the config — the
+API holds long-lived WebSockets for render progress, the worker runs ffmpeg for
+minutes at a time against a GPU, and both want persistent processes. None of
+that fits serverless. Put them on a container host and point the frontend at
+them.
+
+```
+  Vercel                    Fly.io / Railway / Render        Cloud
+  ┌──────────┐              ┌───────────┐  ┌──────────┐      ┌──────────┐
+  │ Next.js  │──── HTTPS ──▶│    API    │  │  worker  │      │ Postgres │
+  │   web    │◀── WSS ──────│           │  │    +     │      │  Redis   │
+  └──────────┘              │           │  │    AI    │      │    S3    │
+                            └───────────┘  └──────────┘      └──────────┘
+```
+
+### Connect the repository
+
+`vercel.json` at the repository root already carries the build, so the only
+thing to get right in the dashboard is the root directory.
+
+1. **New Project** → import `ericJeho/Lipsync101`.
+2. Leave **Root Directory** as the repository root — *not* `apps/web`. The web
+   app imports `@lipsync/shared` through the npm workspace, which only resolves
+   from the root.
+3. Framework preset: **Next.js** (detected).
+4. Leave build and install commands alone; `vercel.json` sets both:
+
+   ```
+   install   npm install --workspace @lipsync/web --workspace @lipsync/shared --include-workspace-root
+   build     npm run build --workspace @lipsync/shared && npm run build --workspace @lipsync/web
+   output    apps/web/.next
+   ```
+
+   The install is scoped on purpose. A plain `npm install` would also build
+   `argon2` and generate the Prisma client for the API, which Vercel neither
+   needs nor can use, and which is the usual cause of a first-build failure on
+   this kind of monorepo.
+
+### Environment variables
+
+Set these in **Settings → Environment Variables** for Production and Preview.
+`NEXT_PUBLIC_*` values are inlined into the client bundle at build time, so
+changing one needs a redeploy, not just a restart.
+
+| Variable | Example | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | `https://api.lipsyncstudio.app` | No trailing slash, no `/v1` |
+| `NEXT_PUBLIC_SITE_URL` | `https://lipsyncstudio.app` | Canonical URL for SEO and OG tags |
+| `NEXT_PUBLIC_WS_URL` | `https://api.lipsyncstudio.app` | Usually the same host as the API |
+
+On the **API** side, set `WEB_URL` to the Vercel domain. It drives the CORS
+allowlist and the OAuth callback, so a mismatch shows up as sign-in silently
+failing in the browser with a CORS error in the console.
+
+### Custom domain
+
+**Settings → Domains → Add**, then point DNS at Vercel:
+
+```
+A      @      76.76.21.21
+CNAME  www    cname.vercel-dns.com
+```
+
+Certificates are issued automatically. Put the API on a subdomain of the same
+apex — `api.yourdomain.com` — so the refresh cookie stays same-site and you
+avoid third-party cookie restrictions in Safari and Firefox.
+
+### What runs where
+
+| Component | Vercel | Why |
+| --- | --- | --- |
+| Next.js frontend | ✅ | Static and edge-rendered, exactly what it is for |
+| Express API | ❌ | Long-lived WebSockets, background timers |
+| Render worker | ❌ | Minutes-long ffmpeg and GPU work per job |
+| Python inference | ❌ | Needs a GPU and multi-gigabyte model weights |
+| Postgres / Redis | ❌ | Use Neon, Supabase, Upstash or the compose stack |
+
+For the backend half, the same `infra/docker-compose.yml` runs unchanged on
+Fly.io, Railway or Render — see the Docker Compose section above. Storage
+should be R2 or S3 rather than the local driver, since containers there have
+ephemeral disks.
+
+### After the first deploy
+
+- [ ] `NEXT_PUBLIC_API_URL` points at a reachable API (`curl $URL/health`)
+- [ ] `WEB_URL` on the API matches the Vercel domain exactly
+- [ ] Sign-in works end to end — the refresh cookie is the thing that breaks
+      first when the domains are misconfigured
+- [ ] The realtime socket connects; check the browser console on a render
+
+---
+
 ## Model weights
 
 Drop weights under `services/ai/weights/`. The service checks for these exact

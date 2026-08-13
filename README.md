@@ -70,6 +70,14 @@ npm run db:seed        # creates admin / creator / free accounts
 
 Sign in as `creator@lipsyncstudio.app` with the password printed by the seed.
 
+### Deploying
+
+The frontend goes on Vercel — `vercel.json` carries the monorepo build, so
+importing the repo and setting `NEXT_PUBLIC_API_URL` is the whole setup. The
+API, worker and inference service need persistent processes and a GPU, so they
+run from the same compose stack on a container host. Both halves are covered in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#vercel).
+
 ### Without Docker
 
 ```bash

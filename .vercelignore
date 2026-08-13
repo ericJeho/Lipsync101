@@ -1,0 +1,17 @@
+# Only apps/web is deployed to Vercel. Excluding the rest keeps the upload
+# small and stops Vercel from trying to build things it cannot run.
+
+services/ai
+infra
+docs
+apps/api/src
+apps/api/prisma
+apps/api/tests
+
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.venv
+storage
+*.log

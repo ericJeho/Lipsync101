@@ -1,0 +1,53 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+
+  "//": [
+    "Deploys apps/web only. The API, the render worker and the Python",
+    "inference service cannot run here — they need persistent processes,",
+    "ffmpeg, a GPU and long-lived WebSockets. Point NEXT_PUBLIC_API_URL at",
+    "wherever those are hosted. See docs/DEPLOYMENT.md#vercel.",
+    "",
+    "Leave the project's Root Directory as the repository root: the web app",
+    "imports @lipsync/shared through the npm workspace, which only resolves",
+    "from there."
+  ],
+
+  "installCommand": "npm install --workspace @lipsync/web --workspace @lipsync/shared --include-workspace-root",
+
+  "buildCommand": "npm run build --workspace @lipsync/shared && npm run build --workspace @lipsync/web",
+
+  "outputDirectory": "apps/web/.next",
+
+  "github": {
+    "silent": true
+  },
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=(), microphone=(self)"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        }
+      ]
+    },
+    {
+      "source": "/_next/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
+}
