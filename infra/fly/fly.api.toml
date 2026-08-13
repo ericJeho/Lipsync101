@@ -1,0 +1,84 @@
+# LipSync Studio — API and render worker on Fly.io
+#
+# Deploy from the repository root, because the Dockerfile's build context is
+# the workspace root:
+#
+#   fly deploy --config infra/fly/fly.api.toml .
+#
+# One app, two process groups. They run the same image and differ only by
+# command, so the code and dependencies cannot drift, and each scales on its
+# own signal: the API on request volume, the worker on queue depth.
+
+app = 'lipsync-api'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'infra/Dockerfile.api'
+
+[deploy]
+  # Runs once per release, before the new machines take traffic. The prisma
+  # CLI is a runtime dependency precisely so this works in the pruned image.
+  release_command = 'npx prisma migrate deploy'
+  # Renders in flight must finish; rolling replaces machines one at a time.
+  strategy = 'rolling'
+
+[processes]
+  api = 'node dist/server.js'
+  worker = 'node dist/worker/index.js'
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '4000'
+  LOG_LEVEL = 'info'
+  ENABLE_QUEUE = 'true'
+  ENABLE_VIRUS_SCAN = 'false'
+  # Cloud storage is not optional here: Fly machines have ephemeral disks and
+  # nothing is shared between them, so the local driver would hand a user a
+  # download URL served by a machine that no longer holds the file.
+  STORAGE_DRIVER = 'r2'
+  DEFAULT_RETENTION_DAYS = '30'
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  processes = ['api']
+
+  # Never scale to zero. The API holds the render-progress WebSockets, and a
+  # suspended machine drops every connected client mid-render.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'requests'
+    # Uploads are presigned so they bypass the API entirely; what is left is
+    # small JSON, which one machine handles a lot of.
+    soft_limit = 200
+    hard_limit = 250
+
+  # Liveness. /health does no I/O deliberately, so a slow database cannot
+  # trigger a restart loop. /ready is the one that checks dependencies, and it
+  # is not used here for exactly that reason.
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '15s'
+    method = 'GET'
+    path = '/health'
+    protocol = 'http'
+    timeout = '5s'
+
+# The worker has no HTTP service, so Fly's proxy-driven autostop does not apply
+# to it at all — but it must also never be scaled to zero by hand, or jobs sit
+# in the queue forever with nothing consuming them.
+[[vm]]
+  processes = ['api']
+  size = 'shared-cpu-2x'
+  # Argon2id is configured at 64MB per hash; several concurrent sign-ins on a
+  # 512MB machine will OOM.
+  memory = '1gb'
+
+[[vm]]
+  processes = ['worker']
+  size = 'performance-2x'
+  # ffmpeg muxing and encoding a 4K render is the memory floor here, not Node.
+  memory = '4gb'

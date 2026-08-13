@@ -72,10 +72,17 @@ Sign in as `creator@lipsyncstudio.app` with the password printed by the seed.
 
 ### Deploying
 
-The frontend goes on Vercel — `vercel.json` carries the monorepo build, so
-importing the repo and setting `NEXT_PUBLIC_API_URL` is the whole setup. The
-API, worker and inference service need persistent processes and a GPU, so they
-run from the same compose stack on a container host. Both halves are covered in
+Frontend on **Vercel**, backend on **Fly.io** — both configs are committed:
+
+```bash
+fly deploy --config infra/fly/fly.ai.toml services/ai    # inference service
+fly deploy --config infra/fly/fly.api.toml .             # API + render worker
+```
+
+`vercel.json` carries the monorepo build, so importing the repo and setting
+`NEXT_PUBLIC_API_URL` is the whole frontend setup. The split is not arbitrary:
+the API holds long-lived WebSockets and the worker runs minutes-long ffmpeg
+jobs against a GPU, neither of which fits serverless. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#vercel).
 
 ### Without Docker

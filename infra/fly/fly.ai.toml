@@ -1,0 +1,65 @@
+# LipSync Studio — Python inference service on Fly.io
+#
+#   fly deploy --config infra/fly/fly.ai.toml services/ai
+#
+# This app is never exposed publicly. The API reaches it over Fly's private
+# network at lipsync-ai.internal:8000, authenticated with AI_SERVICE_TOKEN.
+
+app = 'lipsync-ai'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+  # Swap to 'gpu' once you have a GPU machine and model weights mounted;
+  # the CPU target runs the full pipeline in simulation.
+  target = 'base'
+
+[env]
+  AI_STORAGE_DIR = '/data/storage'
+  AI_WEIGHTS_DIR = '/data/weights'
+  AI_WORK_DIR = '/app/tmp'
+  AI_WHISPER_MODEL = 'small'
+  AI_HOST = '0.0.0.0'
+  AI_PORT = '8000'
+
+# No [http_service] block on purpose. That would publish this service to the
+# internet; a shared bearer token is the only thing in front of it, and it
+# does not need to be reachable from anywhere except the API.
+[[services]]
+  internal_port = 8000
+  protocol = 'tcp'
+  # No `ports` entries, so this listener exists only on the private network.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.tcp_checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '60s'
+
+[[vm]]
+  size = 'performance-4x'
+  # Whisper `small` plus ffmpeg working buffers. Raise this before raising the
+  # CPU count — inference here is memory-bound long before it is CPU-bound.
+  memory = '8gb'
+
+# ---------------------------------------------------------------------------
+# GPU
+#
+# Weights live on a volume rather than in the image: they run to several
+# gigabytes, and baking them in makes every deploy push them again.
+#
+#   fly volumes create lipsync_weights --size 50 --region iad --app lipsync-ai
+#
+# then uncomment below, set build.target = 'gpu', and redeploy.
+# ---------------------------------------------------------------------------
+
+# [[mounts]]
+#   source = 'lipsync_weights'
+#   destination = '/data/weights'
+
+# [[vm]]
+#   size = 'a100-40gb'
+#   memory = '32gb'
+#   gpu_kind = 'a100-pcie-40gb'

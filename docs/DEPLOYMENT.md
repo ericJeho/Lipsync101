@@ -144,6 +144,122 @@ ephemeral disks.
 
 ---
 
+## Fly.io
+
+The backend half — API, render worker and the Python inference service. Fly
+suits this well: persistent machines, a private network between apps, GPU
+machines when you need them, and per-process scaling.
+
+Two apps, plus managed data stores:
+
+| App | Processes | Public |
+| --- | --- | --- |
+| `lipsync-api` | `api` (HTTP) + `worker` (queue consumer) | API only |
+| `lipsync-ai` | inference service | No — private network only |
+
+### First deploy
+
+```bash
+fly auth login
+
+# Data stores. Postgres on Fly, Redis via Upstash — both reachable over the
+# private network, so neither needs a public address.
+fly postgres create --name lipsync-db --region iad
+fly redis create --name lipsync-redis --region iad
+
+# The apps. --no-deploy so we can set secrets before anything boots.
+fly apps create lipsync-api
+fly apps create lipsync-ai
+fly postgres attach lipsync-db --app lipsync-api   # sets DATABASE_URL
+```
+
+Secrets — never in `fly.toml`, which is committed:
+
+```bash
+fly secrets set --app lipsync-api \
+  JWT_ACCESS_SECRET="$(openssl rand -base64 48)" \
+  JWT_REFRESH_SECRET="$(openssl rand -base64 48)" \
+  AI_SERVICE_TOKEN="$(openssl rand -base64 32)" \
+  REDIS_URL="redis://default:...@fly-lipsync-redis.upstash.io" \
+  AI_SERVICE_URL="http://lipsync-ai.internal:8000" \
+  API_URL="https://lipsync-api.fly.dev" \
+  WEB_URL="https://your-vercel-domain.vercel.app" \
+  STORAGE_BUCKET="lipsync-media" \
+  STORAGE_ENDPOINT="https://<account>.r2.cloudflarestorage.com" \
+  STORAGE_ACCESS_KEY="..." \
+  STORAGE_SECRET_KEY="..." \
+  STORAGE_PUBLIC_URL="https://media.yourdomain.com"
+
+# The inference service needs the same shared token, and nothing else.
+fly secrets set --app lipsync-ai AI_SERVICE_TOKEN="<the same value>"
+```
+
+Deploy. The API image builds from the workspace root, so the trailing `.`
+matters — it is the build context:
+
+```bash
+fly deploy --config infra/fly/fly.ai.toml services/ai
+fly deploy --config infra/fly/fly.api.toml .
+```
+
+The API's release command runs `prisma migrate deploy` before new machines take
+traffic, so the schema is applied as part of the deploy rather than by hand.
+
+### Three things that will bite you
+
+**The worker must never scale to zero.** It has no HTTP service, so Fly's
+proxy-driven autostart cannot wake it — nothing is listening to trigger on. A
+worker scaled to zero means jobs queue forever with nothing consuming them, and
+the symptom is renders stuck at "Queued" with a healthy-looking API. Both
+process groups are pinned in `fly.api.toml`; keep them that way.
+
+```bash
+fly scale count api=2 worker=4 --app lipsync-api
+```
+
+**Storage has to be R2 or S3.** Fly machines have ephemeral disks and share
+nothing between them. With the local driver, a user uploads to machine A and
+then gets a download URL served by machine B, which does not have the file.
+`STORAGE_DRIVER` is set to `r2` in `fly.api.toml` for that reason — it is not a
+preference.
+
+**Volumes are per-machine, not shared.** The same applies to model weights: a
+volume attaches to one machine, so scaling the inference app past one machine
+means one volume each.
+
+### Scaling
+
+Render throughput is worker count; each worker takes one job at a time. Watch
+queue depth and add workers while `waiting` stays above zero:
+
+```bash
+fly ssh console --app lipsync-api -C "curl -s localhost:4000/health"
+fly logs --app lipsync-api --instance worker
+fly scale count worker=8 --app lipsync-api
+```
+
+The API scales on request volume instead, but rarely needs to — uploads are
+presigned and bypass it, so what remains is small JSON.
+
+### Connecting the two halves
+
+Set `NEXT_PUBLIC_API_URL` on Vercel to the Fly API hostname, and `WEB_URL` on
+Fly to the Vercel domain. They must agree exactly: `WEB_URL` drives the CORS
+allowlist and the OAuth callback, and a mismatch shows up as sign-in failing
+silently in the browser.
+
+For a custom domain, put the API on a subdomain of the same apex as the
+frontend so the refresh cookie stays same-site:
+
+```bash
+fly certs add api.yourdomain.com --app lipsync-api
+```
+
+Then set `API_URL=https://api.yourdomain.com` and point a CNAME at
+`lipsync-api.fly.dev`.
+
+---
+
 ## Model weights
 
 Drop weights under `services/ai/weights/`. The service checks for these exact
